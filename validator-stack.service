@@ -1,0 +1,54 @@
+[Unit]
+Description=Ethereum Validator Stack (Docker Compose)
+Documentation=https://github.com/emozilla/ethereum-validator-stack
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Change this to your actual validator stack directory
+WorkingDirectory=/opt/validator
+Environment="COMPOSE_PROJECT_NAME=validator"
+
+# User and group to run as (create a dedicated user for production)
+# User=validator
+# Group=validator
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/validator
+
+# Resource limits (adjust based on your system)
+# LimitNOFILE=65536
+# LimitNPROC=4096
+
+# Start the stack
+# Note: docker compose is a plugin, ensure docker is in PATH or adjust path
+ExecStart=/usr/bin/docker compose up -d
+
+# Stop the stack gracefully
+ExecStop=/usr/bin/docker compose down
+
+# Reload (pull new images and restart)
+ExecReload=/usr/bin/docker compose pull && /usr/bin/docker compose up -d
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=0
+TimeoutStopSec=300
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=validator-stack
+
+[Install]
+WantedBy=multi-user.target
+
