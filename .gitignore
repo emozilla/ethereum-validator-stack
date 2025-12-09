@@ -1,0 +1,6 @@
+.env
+jwtsecret.hex
+data/web3signer
+config/db
+*.log
+.DS_Store

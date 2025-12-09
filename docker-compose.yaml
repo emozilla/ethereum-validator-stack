@@ -1,0 +1,225 @@
+configs:
+  grafana_ds_config:
+    content: |
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://prometheus:9090
+          access: proxy
+          isDefault: true
+
+  validators_definitions:
+    content: |
+      - enabled: true
+        voting_public_key: "0x${V_PUB_KEY}"
+        type: "web3signer"
+        url: "http://web3signer:9000"
+
+volumes:
+  execution_data: {}
+  consensus_data: {}
+  validator_data: {}
+  web3signer_db: {}
+  prometheus_data: {}
+  grafana_data: {}
+
+networks:
+  eth-net:
+    name: eth-net
+    driver: bridge
+
+services:
+  execution:
+    image: ethereum/client-go:${GETH_VERSION}
+    container_name: geth-${NETWORK_NAME}
+    restart: unless-stopped
+    volumes:
+      - execution_data:/data
+      - ./jwtsecret.hex:/jwtsecret.hex:ro
+    command: 
+      - ${EXECUTION_CLIENT_NETWORK_FLAG} 
+      - --datadir=/data
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8551
+      - --authrpc.jwtsecret=/jwtsecret.hex
+      - --authrpc.vhosts=*
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.api=engine,eth,net,web3,txpool
+      - --metrics
+      - --metrics.addr=0.0.0.0
+      - --metrics.port=6060
+    ports:
+      - 8545:8545
+      - 30303:30303/tcp
+      - 30303:30303/udp
+    networks:
+      - eth-net
+
+  consensus:
+    image: sigp/lighthouse:${LIGHTHOUSE_VERSION}
+    container_name: lighthouse-${NETWORK_NAME}
+    restart: unless-stopped
+    depends_on:
+      execution:
+        condition: service_started
+    volumes:
+      - consensus_data:/data
+      - ./jwtsecret.hex:/jwtsecret.hex:ro
+    command: 
+      - lighthouse
+      - beacon_node
+      - --execution-endpoint=http://execution:8551
+      - --execution-jwt=/jwtsecret.hex
+      - --network=${NETWORK_NAME}
+      - --datadir=/data
+      - --checkpoint-sync-url=${CHECKPOINT_SYNC_URL}
+      - --http
+      - --http-address=0.0.0.0
+      - --http-port=5052
+      - --metrics
+      - --metrics-address=0.0.0.0
+      - --metrics-port=5054
+      - --log-format=JSON
+      - --validator-monitor-auto
+    ports:
+      - "5052:5052"
+    networks:
+      - eth-net
+
+  validator:
+    image: sigp/lighthouse:${LIGHTHOUSE_VERSION}
+    container_name: validator-${NETWORK_NAME}
+    restart: unless-stopped
+    depends_on:
+      consensus:
+        condition: service_started
+      web3signer:
+        condition: service_healthy
+    volumes:
+      - validator_data:/data/validator
+    configs:  
+      - source: validators_definitions
+        target: /data/validator/validator_definitions.yml
+        uid: '472'
+        gid: '472'
+    command: 
+      - lighthouse
+      - validator_client
+      - --network=${NETWORK_NAME}
+      - --validators-dir=/data/validator
+      - --suggested-fee-recipient=${FEE_RECIPIENT}
+      - --init-slashing-protection
+      - --disable-slashing-protection-web3signer
+      - --beacon-nodes=http://consensus:5052
+      - --http
+      - --http-address=0.0.0.0
+      - --unencrypted-http-transport
+      - --http-port=5062
+      - --metrics
+      - --metrics-address=0.0.0.0
+      - --metrics-port=5064
+      - --log-format=JSON        
+    ports:
+      - "5062:5062"
+    networks:
+      - eth-net
+
+  web3signer:
+    image: consensys/web3signer:${WEB3SIGNER_VERSION}
+    container_name: web3signer-${NETWORK_NAME}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data/web3signer:/keys:ro
+    command:
+      - --http-listen-host=0.0.0.0
+      - --http-listen-port=9000
+      - --http-host-allowlist=*
+      - --metrics-enabled=true
+      - --metrics-host=0.0.0.0
+      - --metrics-port=9001
+      - --metrics-host-allowlist=*
+      - eth2
+      - --network=${NETWORK_NAME}      
+      - --keystores-path=/keys 
+      - --keystores-passwords-path=/keys 
+      - --slashing-protection-db-url=jdbc:postgresql://db:5432/web3signer
+      - --slashing-protection-db-password=${DB_PASSWORD}
+      - --slashing-protection-db-username=web3signer
+    networks:
+      - eth-net
+
+  db:
+    image: postgres:${POSTGRES_VERSION}
+    container_name: postgres-web3signer-${NETWORK_NAME}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: web3signer
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: web3signer
+    volumes:
+      - ./config/db:/docker-entrypoint-initdb.d:ro
+      - web3signer_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U web3signer -d web3signer"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - eth-net
+
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION}
+    container_name: prometheus-${NETWORK_NAME}
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - 9090:9090
+    networks:
+      - eth-net
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION}
+    container_name: grafana-${NETWORK_NAME}
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana:/etc/grafana/provisioning
+    configs:  
+      - source: grafana_ds_config
+        target: /etc/grafana/provisioning/datasources/prometheus.yml
+        uid: '472'
+        gid: '472'
+    ports:
+      - "3000:3000"
+    networks:
+      - eth-net
+
+  node-exporter:
+    image: prom/node-exporter:${NODE_EXPORTER_VERSION}
+    container_name: node-exporter-${NETWORK_NAME}
+    restart: unless-stopped
+    pid: host    
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - eth-net
