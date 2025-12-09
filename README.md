@@ -383,11 +383,25 @@ sudo systemctl restart validator-stack
 # Check service status
 sudo systemctl status validator-stack
 
+# Comprehensive status check (systemd + containers + health)
+./check-status.sh
+
 # View logs
 sudo journalctl -u validator-stack -f
 
 # Enable service to start on boot
 sudo systemctl enable validator-stack
+```
+
+**Status Checking**:
+
+The `check-status.sh` script provides a comprehensive status overview:
+- Systemd service status
+- Docker container status
+- Optional health check integration
+
+```bash
+./check-status.sh
 ```
 
 **Benefits**:
@@ -423,6 +437,16 @@ Access Prometheus at:
 Query metrics directly or explore available metrics.
 
 ### Health Checks
+
+**Quick Status Check**:
+
+For a comprehensive overview of systemd service, Docker containers, and health status:
+
+```bash
+./check-status.sh
+```
+
+**Detailed Health Check**:
 
 Run the health check script to verify validator status:
 

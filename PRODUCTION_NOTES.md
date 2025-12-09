@@ -550,6 +550,9 @@ sudo systemctl restart validator-stack
 # Check service status
 sudo systemctl status validator-stack
 
+# Comprehensive status check (systemd + containers + health)
+./check-status.sh
+
 # View logs
 sudo journalctl -u validator-stack -f
 
