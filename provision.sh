@@ -32,7 +32,7 @@ test -f jwtsecret.hex || openssl rand -hex 32 > jwtsecret.hex
 
 # --- C. Copy Web3Signer slashing protection db schema ---
 WEBSIGNER_IMAGE="consensys/web3signer:"${WEB3SIGNER_VERSION}
-MIGRATION_SOURCE_PATH="/migrations/postgresql"
+MIGRATION_SOURCE_PATH="/opt/web3signer/migrations/postgresql"
 TEMP_CONTAINER_NAME="web3signer-migrator-extractor"
 
 # Check if migration files have already been extracted
@@ -51,7 +51,6 @@ if [ -z "$(ls -A ${MIGRATION_DEST_PATH})" ]; then
     echo "Migration files extracted successfully."
     # 3. CRITICAL PERMISSION FIX for extracted files
     # Files are created by root via docker cp; set ownership and permissions.
-    sudo chown -R $USER:$USER ${MIGRATION_DEST_PATH}
     sudo chmod -R 755 ${MIGRATION_DEST_PATH} 
 else
     echo "-> Migration files already exist in ${MIGRATION_DEST_PATH}. Skipping extraction."
